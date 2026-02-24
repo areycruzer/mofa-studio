@@ -1324,3 +1324,15 @@ impl App {
 // ============================================================================
 
 app_main!(App);
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_linux_build_features_omitted() {
+        // Verify that the mofa-asr feature is not enabled by default
+        #[cfg(feature = "mofa-asr")]
+        panic!("mofa-asr feature should be disabled by default to fix Linux build");
+
+        assert!(true, "Features correctly omitted for Linux build");
+    }
+}

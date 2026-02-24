@@ -192,3 +192,18 @@ impl MofaNodeType {
         node_id.starts_with(MOFA_NODE_PREFIX)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_linux_build_mlx_omitted() {
+        // Verify that the mlx-dependent features are not enabled by default
+        #[cfg(feature = "asr-paraformer")]
+        panic!("asr-paraformer feature should be disabled by default to fix Linux build");
+
+        #[cfg(feature = "asr-sensevoice")]
+        panic!("asr-sensevoice feature should be disabled by default to fix Linux build");
+
+        assert!(true, "Features correctly omitted for Linux build");
+    }
+}
