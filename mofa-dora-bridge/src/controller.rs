@@ -201,30 +201,14 @@ impl DataflowController {
             cmd.env(key, value);
         }
 
-        // Tier 2 Auto-Installer PATH Injection:
-        // If the user installed nodes via install-nodes.sh, the isolated Python environment
-        // lives in ~/.mofa/studio/.pixi/envs/default/bin. Prepend this to PATH so Dora nodes
-        // use the correct python binary and dependencies without requiring the user to
-        // manually activate the pixi environment.
+        // Nodes installed by install-nodes.sh live in an isolated pixi environment.
+        // Prepend it to the dora command's PATH (not the process PATH) so the nodes
+        // find that Python without the user activating the environment.
         if let Some(home) = dirs::home_dir() {
-            let pixi_bin_path = home.join(".mofa").join("studio").join(".pixi").join("envs").join("default").join("bin");
-            if pixi_bin_path.exists() {
-                // Get current PATH, or empty string if not set
-                let current_path = std::env::var_os("PATH").unwrap_or_default();
-                let mut new_path = std::ffi::OsString::new();
-                new_path.push(&pixi_bin_path);
-                
-                // On Windows uses ';', on Unix uses ':'
-                #[cfg(windows)]
-                new_path.push(";");
-                #[cfg(not(windows))]
-                new_path.push(":");
-                
-                new_path.push(current_path);
-                
-                // Inject the modified PATH into the Command specifically (not process-wide)
-                cmd.env("PATH", new_path);
-                info!("Injected Pixi environment into PATH: {:?}", pixi_bin_path);
+            let pixi_bin = pixi_env_bin(&home);
+            if let Some(path) = path_with_pixi_env(&pixi_bin, std::env::var_os("PATH")) {
+                cmd.env("PATH", path);
+                info!("Injected Pixi environment into PATH: {:?}", pixi_bin);
             }
         }
 
@@ -430,6 +414,32 @@ pub struct DataflowStatus {
     pub mofa_node_count: usize,
 }
 
+/// The `bin` directory of the pixi environment that install-nodes.sh creates.
+fn pixi_env_bin(home: &Path) -> PathBuf {
+    home.join(".mofa")
+        .join("studio")
+        .join(".pixi")
+        .join("envs")
+        .join("default")
+        .join("bin")
+}
+
+/// `current_path` with `pixi_bin` prepended, or `None` when that environment
+/// is not installed.
+fn path_with_pixi_env(
+    pixi_bin: &Path,
+    current_path: Option<std::ffi::OsString>,
+) -> Option<std::ffi::OsString> {
+    if !pixi_bin.is_dir() {
+        return None;
+    }
+    let mut paths = vec![pixi_bin.to_path_buf()];
+    if let Some(current) = current_path {
+        paths.extend(std::env::split_paths(&current));
+    }
+    std::env::join_paths(paths).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,28 +448,60 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn test_pixi_env_prepended_to_path() {
+        let home = tempdir().unwrap();
+        let pixi_bin = pixi_env_bin(home.path());
+        std::fs::create_dir_all(&pixi_bin).unwrap();
+        let existing =
+            std::env::join_paths([PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap();
+
+        let path = path_with_pixi_env(&pixi_bin, Some(existing)).unwrap();
+        let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+
+        assert_eq!(
+            entries,
+            vec![pixi_bin, PathBuf::from("/usr/bin"), PathBuf::from("/bin")]
+        );
+    }
+
+    #[test]
+    fn test_pixi_env_missing_leaves_path_alone() {
+        let home = tempdir().unwrap();
+        let pixi_bin = pixi_env_bin(home.path());
+
+        assert!(path_with_pixi_env(&pixi_bin, Some("/usr/bin".into())).is_none());
+    }
+
+    #[test]
     fn test_dataflow_controller_init() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test_dataflow.yml");
-        
+
         let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "nodes:\n  - id: test-node\n    custom:\n      source: python\n      args: main.py").unwrap();
+        writeln!(
+            file,
+            "nodes:\n  - id: test-node\n    custom:\n      source: python\n      args: main.py"
+        )
+        .unwrap();
 
         let controller = DataflowController::new(&file_path);
         assert!(controller.is_ok());
         let controller = controller.unwrap();
         assert_eq!(controller.state(), DataflowState::Stopped);
     }
-    
+
     #[test]
-    fn test_env_injection() {
+    fn test_set_env_records_variable() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test_dataflow.yml");
         File::create(&file_path).unwrap();
-        
+
         let mut controller = DataflowController::new(&file_path).unwrap();
         controller.set_env("TEST_KEY", "TEST_VAL");
-        
-        assert_eq!(controller.env_vars.get("TEST_KEY").map(|s| s.as_str()), Some("TEST_VAL"));
+
+        assert_eq!(
+            controller.env_vars.get("TEST_KEY").map(|s| s.as_str()),
+            Some("TEST_VAL")
+        );
     }
 }
