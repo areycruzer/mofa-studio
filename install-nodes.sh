@@ -40,7 +40,7 @@ if ! command -v pixi &> /dev/null; then
     curl -fsSL https://pixi.sh/install.sh | bash
     # Export path for the current script execution
     export PATH="$HOME/.pixi/bin:$PATH"
-    
+
     if ! command -v pixi &> /dev/null; then
         echo "❌ Error: Failed to install or find Pixi in PATH."
         exit 1

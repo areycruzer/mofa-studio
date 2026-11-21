@@ -10,6 +10,7 @@ mofa-dora-bridge = { path = "../../mofa-dora-bridge" }
 mofa-ui = { path = "../../mofa-ui" }
 mofa-settings = { path = "../mofa-settings" }
 parking_lot.workspace = true
+dirs.workspace = true
 log.workspace = true
 sysinfo.workspace = true
 cpal.workspace = true
